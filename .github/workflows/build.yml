@@ -1,0 +1,1743 @@
+name: Build Lynxora AI
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Buat proyek
+        run: |
+          mkdir -p $(dirname settings.gradle.kts)
+          cat > settings.gradle.kts <<'__END_0__'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "LynxoraAI"
+          include(":app")
+          __END_0__
+          mkdir -p $(dirname build.gradle.kts)
+          cat > build.gradle.kts <<'__END_1__'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          __END_1__
+          mkdir -p $(dirname gradle.properties)
+          cat > gradle.properties <<'__END_2__'
+          org.gradle.jvmargs=-Xmx2g
+          android.useAndroidX=false
+          __END_2__
+          mkdir -p $(dirname app/build.gradle.kts)
+          cat > app/build.gradle.kts <<'__END_3__'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.asisten.hp"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.asisten.hp"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          __END_3__
+          mkdir -p $(dirname app/src/main/AndroidManifest.xml)
+          cat > app/src/main/AndroidManifest.xml <<'__END_4__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.MAIN" />
+                      <category android:name="android.intent.category.LAUNCHER" />
+                  </intent>
+                  <intent>
+                      <action android:name="android.speech.RecognitionService" />
+                  </intent>
+                  <intent>
+                      <action android:name="android.intent.action.TTS_SERVICE" />
+                  </intent>
+              </queries>
+              <application
+                  android:label="Lynxora AI"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".OverlayService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse|microphone">
+                      <property
+                          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                          android:value="overlay assistant" />
+                  </service>
+                  <service
+                      android:name=".AsistenAccessibilityService"
+                      android:exported="true"
+                      android:label="Lynxora AI"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_config" />
+                  </service>
+              </application>
+          </manifest>
+          __END_4__
+          mkdir -p $(dirname app/src/main/res/xml/accessibility_config.xml)
+          cat > app/src/main/res/xml/accessibility_config.xml <<'__END_5__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault|flagIncludeNotImportantViews"
+              android:canRetrieveWindowContent="true"
+              android:description="@string/acc_desc"
+              android:notificationTimeout="100" />
+          __END_5__
+          mkdir -p $(dirname app/src/main/res/values/strings.xml)
+          cat > app/src/main/res/values/strings.xml <<'__END_6__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Lynxora AI</string>
+              <string name="acc_desc">Lynxora AI memakai layanan ini untuk mengetik, menekan tombol, dan scroll di aplikasi lain sesuai perintahmu.</string>
+          </resources>
+          __END_6__
+          mkdir -p $(dirname app/src/main/java/com/asisten/hp/MainActivity.kt)
+          cat > app/src/main/java/com/asisten/hp/MainActivity.kt <<'__END_7__'
+          package com.asisten.hp
+
+          import android.Manifest
+          import android.app.Activity
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.view.Gravity
+          import android.view.ViewGroup
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import android.widget.Toast
+
+          class MainActivity : Activity() {
+              private val cBg = "#0D0B12"
+              private val cSurface = "#16131E"
+              private val cText = "#ECE9F4"
+              private val cMuted = "#8D869F"
+              private val cAccent = "#6D3FE0"
+              private val cOk = "#5FD0A0"
+              private val cWarn = "#E5A93D"
+
+              private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+              private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+
+              private lateinit var stAks: TextView
+              private lateinit var stOver: TextView
+              private lateinit var stIzin: TextView
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              private fun rounded(fill: String, r: Int): GradientDrawable =
+                  GradientDrawable().apply {
+                      setColor(Color.parseColor(fill))
+                      cornerRadius = dp(r).toFloat()
+                  }
+
+              private fun tv(t: String, size: Float, color: String, medium: Boolean): TextView =
+                  TextView(this).apply {
+                      text = t
+                      textSize = size
+                      setTextColor(Color.parseColor(color))
+                      if (medium) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                  }
+
+              private fun lp(top: Int): LinearLayout.LayoutParams {
+                  val p = LinearLayout.LayoutParams(MATCH, WRAP)
+                  p.topMargin = dp(top)
+                  return p
+              }
+
+              private fun row(judul: String, desc: String, status: TextView, aksi: String, onClick: () -> Unit): LinearLayout {
+                  val kiri = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+                      addView(tv(judul, 15f, cText, true))
+                      addView(tv(desc, 12f, cMuted, false), lp(2))
+                      addView(status, lp(6))
+                  }
+                  val btn = tv(aksi, 13f, "#B79CFF", true).apply {
+                      gravity = Gravity.CENTER
+                      background = rounded("#251F36", 10)
+                      setPadding(dp(16), dp(9), dp(16), dp(9))
+                      setOnClickListener { onClick() }
+                  }
+                  return LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      background = rounded(cSurface, 14)
+                      setPadding(dp(14), dp(14), dp(14), dp(14))
+                      addView(kiri)
+                      addView(btn)
+                  }
+              }
+
+              private fun section(t: String): TextView =
+                  tv(t, 11f, cMuted, true).apply { letterSpacing = 0.1f }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.statusBarColor = Color.parseColor(cBg)
+                  window.navigationBarColor = Color.parseColor(cBg)
+
+                  val root = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(20), dp(52), dp(20), dp(32))
+                  }
+
+                  root.addView(ImageView(this).apply {
+                      setImageResource(R.drawable.logo)
+                      layoutParams = LinearLayout.LayoutParams(dp(64), dp(64))
+                  })
+                  root.addView(tv("Lynxora AI", 26f, cText, true), lp(14))
+                  root.addView(tv("Asisten untuk HP-mu. Perintahkan lewat teks atau suara.", 14f, cMuted, false), lp(4))
+
+                  root.addView(section("PENGATURAN AWAL"), lp(28))
+                  stAks = tv("", 12f, cMuted, true)
+                  stOver = tv("", 12f, cMuted, true)
+                  stIzin = tv("", 12f, cMuted, true)
+                  root.addView(
+                      row("Aksesibilitas", "Untuk mengetik, tap, dan scroll di aplikasi lain", stAks, "Atur") {
+                          startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                      }, lp(10)
+                  )
+                  root.addView(
+                      row("Tampil di atas aplikasi lain", "Untuk ikon Lynxora yang melayang", stOver, "Atur") {
+                          startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                      }, lp(8)
+                  )
+                  root.addView(
+                      row("Mikrofon & notifikasi", "Untuk perintah suara dan status layanan", stIzin, "Izinkan") {
+                          val p = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                          if (Build.VERSION.SDK_INT >= 33) p.add(Manifest.permission.POST_NOTIFICATIONS)
+                          requestPermissions(p.toTypedArray(), 1)
+                      }, lp(8)
+                  )
+
+                  val mulai = tv("Mulai Lynxora", 15f, "#FFFFFF", true).apply {
+                      gravity = Gravity.CENTER
+                      background = rounded(cAccent, 14)
+                      setPadding(0, dp(16), 0, dp(16))
+                      setOnClickListener {
+                          if (!Settings.canDrawOverlays(this@MainActivity)) {
+                              Toast.makeText(this@MainActivity, "Izinkan tampil di atas aplikasi lain dulu", Toast.LENGTH_LONG).show()
+                          } else {
+                              stopService(Intent(this@MainActivity, OverlayService::class.java))
+                              startForegroundService(Intent(this@MainActivity, OverlayService::class.java))
+                              Toast.makeText(this@MainActivity, "Lynxora aktif. Ketuk ikonnya untuk memulai.", Toast.LENGTH_SHORT).show()
+                              moveTaskToBack(true)
+                          }
+                      }
+                  }
+                  root.addView(mulai, lp(22))
+
+                  val henti = tv("Hentikan", 14f, cMuted, true).apply {
+                      gravity = Gravity.CENTER
+                      setPadding(0, dp(14), 0, dp(14))
+                      setOnClickListener { stopService(Intent(this@MainActivity, OverlayService::class.java)) }
+                  }
+                  root.addView(henti, lp(4))
+
+                  root.addView(section("CONTOH PERINTAH"), lp(20))
+                  val contoh = tv(
+                      "buka wa\nbuka ml\ncari resep nasi goreng\nsenter nyala\nalarm jam 6.30\n" +
+                          "timer 5 menit\nhitung 12*5\nkirim wa 0812xxxx halo\nbantuan",
+                      13f, "#B9B3CC", false
+                  ).apply {
+                      typeface = Typeface.MONOSPACE
+                      setLineSpacing(0f, 1.25f)
+                      background = rounded(cSurface, 14)
+                      setPadding(dp(16), dp(14), dp(16), dp(14))
+                  }
+                  root.addView(contoh, lp(10))
+
+                  setContentView(ScrollView(this).apply {
+                      setBackgroundColor(Color.parseColor(cBg))
+                      addView(root)
+                  })
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  refresh()
+              }
+
+              override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+                  refresh()
+              }
+
+              private fun setSt(t: TextView, aktif: Boolean, on: String, off: String) {
+                  t.text = if (aktif) on else off
+                  t.setTextColor(Color.parseColor(if (aktif) cOk else cWarn))
+              }
+
+              private fun refresh() {
+                  setSt(stAks, AsistenAccessibilityService.instance != null, "Aktif", "Belum aktif")
+                  setSt(stOver, Settings.canDrawOverlays(this), "Diizinkan", "Belum diizinkan")
+                  val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                  val notif = Build.VERSION.SDK_INT < 33 ||
+                      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                  setSt(stIzin, mic && notif, "Diizinkan", "Belum diizinkan")
+              }
+          }
+          __END_7__
+          mkdir -p $(dirname app/src/main/java/com/asisten/hp/OverlayService.kt)
+          cat > app/src/main/java/com/asisten/hp/OverlayService.kt <<'__END_8__'
+          package com.asisten.hp
+
+          import android.Manifest
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.Service
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.content.pm.ServiceInfo
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.speech.RecognitionListener
+          import android.speech.RecognizerIntent
+          import android.speech.SpeechRecognizer
+          import android.speech.tts.TextToSpeech
+          import android.text.InputType
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.ViewGroup
+          import android.view.WindowManager
+          import android.view.inputmethod.EditorInfo
+          import android.view.inputmethod.InputMethodManager
+          import android.widget.EditText
+          import android.widget.HorizontalScrollView
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import java.util.Locale
+          import kotlin.math.abs
+
+          class OverlayService : Service() {
+              private lateinit var wm: WindowManager
+              private lateinit var imm: InputMethodManager
+              private lateinit var orbLp: WindowManager.LayoutParams
+              private lateinit var panelLp: WindowManager.LayoutParams
+              private lateinit var orb: ImageView
+              private lateinit var panel: LinearLayout
+              private lateinit var log: LinearLayout
+              private lateinit var scroll: ScrollView
+              private lateinit var input: EditText
+              private lateinit var status: TextView
+              private lateinit var dotBg: GradientDrawable
+
+              private val h = Handler(Looper.getMainLooper())
+              private var tts: TextToSpeech? = null
+              private var ttsReady = false
+              private var recognizer: SpeechRecognizer? = null
+              private var expanded = false
+              private var greeted = false
+
+              private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+              private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+              private val noFocus = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                  WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                  WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+              private val withFocus = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                  WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+
+              private val cPanel = "#121019"
+              private val cField = "#1B1826"
+              private val cText = "#ECE9F4"
+              private val cMuted = "#8D869F"
+              private val cAccent = "#5B34C9"
+              private val cOk = "#5FD0A0"
+              private val cWarn = "#E5A93D"
+              private val cInfo = "#A78BFA"
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
+
+              override fun onCreate() {
+                  super.onCreate()
+                  startFg()
+                  wm = getSystemService(WINDOW_SERVICE) as WindowManager
+                  imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+                  tts = TextToSpeech(this) { st ->
+                      if (st == TextToSpeech.SUCCESS) {
+                          tts?.setLanguage(Locale("id", "ID"))
+                          ttsReady = true
+                      }
+                  }
+                  buildOrb()
+                  buildPanel()
+                  try {
+                      wm.addView(orb, orbLp)
+                  } catch (e: Exception) {
+                      stopSelf()
+                  }
+              }
+
+              override fun onDestroy() {
+                  recognizer?.destroy()
+                  tts?.shutdown()
+                  try { wm.removeView(orb) } catch (e: Exception) {}
+                  try { wm.removeView(panel) } catch (e: Exception) {}
+                  super.onDestroy()
+              }
+
+              private fun startFg() {
+                  val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                  nm.createNotificationChannel(
+                      NotificationChannel("lynxora", "Lynxora AI", NotificationManager.IMPORTANCE_LOW)
+                  )
+                  val n: Notification = Notification.Builder(this, "lynxora")
+                      .setContentTitle("Lynxora AI aktif")
+                      .setContentText("Ketuk ikon yang melayang untuk membuka")
+                      .setSmallIcon(R.drawable.ic_notif)
+                      .build()
+                  val mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                  if (Build.VERSION.SDK_INT >= 34) {
+                      var t = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                      if (mic) t = t or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                      startForeground(1, n, t)
+                  } else if (Build.VERSION.SDK_INT >= 30 && mic) {
+                      startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                  } else if (Build.VERSION.SDK_INT >= 29) {
+                      startForeground(1, n, 0)
+                  } else {
+                      startForeground(1, n)
+                  }
+              }
+
+              // ---------- helper tampilan ----------
+
+              private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+              private fun shape(fill: String, r: Int): GradientDrawable =
+                  GradientDrawable().apply {
+                      setColor(Color.parseColor(fill))
+                      cornerRadius = dp(r).toFloat()
+                  }
+
+              private fun icon(res: Int, tint: String, pad: Int): ImageView =
+                  ImageView(this).apply {
+                      setImageResource(res)
+                      setColorFilter(Color.parseColor(tint))
+                      setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+                  }
+
+              private fun draggable(v: View, lp: WindowManager.LayoutParams, target: View, onTap: (() -> Unit)? = null) {
+                  var sx = 0
+                  var sy = 0
+                  var tx = 0f
+                  var ty = 0f
+                  var moved = false
+                  v.setOnTouchListener { _, e ->
+                      when (e.action) {
+                          MotionEvent.ACTION_DOWN -> {
+                              sx = lp.x; sy = lp.y; tx = e.rawX; ty = e.rawY; moved = false
+                          }
+                          MotionEvent.ACTION_MOVE -> {
+                              val dx = (e.rawX - tx).toInt()
+                              val dy = (e.rawY - ty).toInt()
+                              if (abs(dx) > dp(5) || abs(dy) > dp(5)) moved = true
+                              if (moved) {
+                                  lp.x = sx + dx
+                                  lp.y = sy + dy
+                                  try { wm.updateViewLayout(target, lp) } catch (ex: Exception) {}
+                              }
+                          }
+                          MotionEvent.ACTION_UP -> {
+                              if (!moved) onTap?.invoke()
+                          }
+                      }
+                      true
+                  }
+              }
+
+              private fun buildOrb() {
+                  orb = ImageView(this).apply {
+                      setImageResource(R.drawable.logo)
+                      scaleType = ImageView.ScaleType.FIT_CENTER
+                  }
+                  orbLp = WindowManager.LayoutParams(
+                      dp(52), dp(52),
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.START
+                      x = dp(12)
+                      y = dp(160)
+                  }
+                  draggable(orb, orbLp, orb) { expand() }
+              }
+
+              private fun buildPanel() {
+                  val avatar = ImageView(this).apply {
+                      setImageResource(R.drawable.logo)
+                      layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
+                  }
+                  val title = TextView(this).apply {
+                      text = "Lynxora AI"
+                      setTextColor(Color.parseColor(cText))
+                      textSize = 15f
+                      typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                  }
+                  dotBg = GradientDrawable().apply {
+                      setShape(GradientDrawable.OVAL)
+                      setColor(Color.parseColor(cOk))
+                  }
+                  val dot = View(this).apply {
+                      background = dotBg
+                      val dl = LinearLayout.LayoutParams(dp(7), dp(7))
+                      dl.rightMargin = dp(6)
+                      layoutParams = dl
+                  }
+                  status = TextView(this).apply {
+                      textSize = 11f
+                      setTextColor(Color.parseColor(cMuted))
+                  }
+                  val statusRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      addView(dot)
+                      addView(status)
+                  }
+                  val names = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(10), 0, 0, 0)
+                      addView(title)
+                      addView(statusRow)
+                      layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+                  }
+                  val minim = icon(R.drawable.ic_down, "#8D869F", 7).apply {
+                      layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
+                      setOnClickListener { collapse() }
+                  }
+                  val tutup = icon(R.drawable.ic_close, "#8D869F", 9).apply {
+                      layoutParams = LinearLayout.LayoutParams(dp(34), dp(34))
+                      setOnClickListener { stopSelf() }
+                  }
+                  val header = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      addView(avatar)
+                      addView(names)
+                      addView(minim)
+                      addView(tutup)
+                  }
+                  val divider = View(this).apply {
+                      setBackgroundColor(Color.parseColor("#241F30"))
+                  }
+
+                  log = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(0, dp(4), 0, dp(4))
+                  }
+                  scroll = ScrollView(this).apply {
+                      isVerticalScrollBarEnabled = false
+                      addView(log)
+                  }
+
+                  val chipRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      setPadding(0, dp(6), 0, dp(10))
+                  }
+                  val daftar = listOf("Buka WA", "Buka ML", "Senter", "Screenshot", "Bantuan")
+                  for (c in daftar) {
+                      val chip = TextView(this).apply {
+                          text = c
+                          setTextColor(Color.parseColor("#B9B3CC"))
+                          textSize = 12f
+                          setPadding(dp(12), dp(7), dp(12), dp(7))
+                          background = shape(cField, 8)
+                          setOnClickListener { kirim(c, false) }
+                      }
+                      val clp = LinearLayout.LayoutParams(WRAP, WRAP)
+                      clp.rightMargin = dp(6)
+                      chipRow.addView(chip, clp)
+                  }
+                  val chips = HorizontalScrollView(this).apply {
+                      isHorizontalScrollBarEnabled = false
+                      addView(chipRow)
+                  }
+
+                  input = EditText(this).apply {
+                      hint = "Tulis perintah"
+                      setHintTextColor(Color.parseColor("#6B647C"))
+                      setTextColor(Color.parseColor(cText))
+                      textSize = 14f
+                      inputType = InputType.TYPE_CLASS_TEXT
+                      setSingleLine()
+                      imeOptions = EditorInfo.IME_ACTION_SEND
+                      background = shape(cField, 12)
+                      setPadding(dp(14), dp(10), dp(14), dp(10))
+                      layoutParams = LinearLayout.LayoutParams(0, WRAP, 1f)
+                  }
+                  val mic = icon(R.drawable.ic_mic, "#B9B3CC", 10).apply {
+                      background = shape(cField, 12)
+                      setOnClickListener { dengar() }
+                  }
+                  val kirimBtn = icon(R.drawable.ic_send, "#FFFFFF", 10).apply {
+                      background = shape(cAccent, 12)
+                      setOnClickListener { kirim(input.text.toString(), false) }
+                  }
+                  val inputRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      addView(input)
+                      val l1 = LinearLayout.LayoutParams(dp(42), dp(42))
+                      l1.leftMargin = dp(6)
+                      addView(mic, l1)
+                      val l2 = LinearLayout.LayoutParams(dp(42), dp(42))
+                      l2.leftMargin = dp(6)
+                      addView(kirimBtn, l2)
+                  }
+
+                  panel = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      background = shape(cPanel, 20)
+                      setPadding(dp(14), dp(12), dp(14), dp(12))
+                      addView(header)
+                      val dlp = LinearLayout.LayoutParams(MATCH, dp(1))
+                      dlp.topMargin = dp(10)
+                      addView(divider, dlp)
+                      val slp = LinearLayout.LayoutParams(MATCH, dp(200))
+                      slp.topMargin = dp(4)
+                      addView(scroll, slp)
+                      addView(chips)
+                      addView(inputRow)
+                  }
+
+                  val sw = resources.displayMetrics.widthPixels
+                  val w = minOf(sw - dp(24), dp(330))
+                  panelLp = WindowManager.LayoutParams(
+                      w, WRAP,
+                      WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                      noFocus,
+                      PixelFormat.TRANSLUCENT
+                  ).apply {
+                      gravity = Gravity.TOP or Gravity.START
+                      x = (sw - w) / 2
+                      y = dp(80)
+                      softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                  }
+
+                  draggable(header, panelLp, panel)
+
+                  input.setOnTouchListener { v, e ->
+                      if (e.action == MotionEvent.ACTION_DOWN) {
+                          setFocusable(true)
+                          v.requestFocus()
+                          h.postDelayed({ imm.showSoftInput(v, 0) }, 150)
+                      }
+                      false
+                  }
+                  input.setOnEditorActionListener { _, a, _ ->
+                      if (a == EditorInfo.IME_ACTION_SEND) {
+                          kirim(input.text.toString(), false)
+                          true
+                      } else {
+                          false
+                      }
+                  }
+                  panel.setOnTouchListener { _, e ->
+                      if (e.action == MotionEvent.ACTION_OUTSIDE) {
+                          imm.hideSoftInputFromWindow(input.windowToken, 0)
+                          setFocusable(false)
+                      }
+                      false
+                  }
+              }
+
+              // ---------- buka / tutup panel ----------
+
+              private fun setFocusable(on: Boolean) {
+                  panelLp.flags = if (on) withFocus else noFocus
+                  if (expanded) {
+                      try { wm.updateViewLayout(panel, panelLp) } catch (e: Exception) {}
+                  }
+              }
+
+              private fun expand() {
+                  if (expanded) return
+                  expanded = true
+                  try { wm.removeView(orb) } catch (e: Exception) {}
+                  panelLp.flags = noFocus
+                  try {
+                      wm.addView(panel, panelLp)
+                  } catch (e: Exception) {
+                      expanded = false
+                      return
+                  }
+                  updateStatus()
+                  if (!greeted) {
+                      greeted = true
+                      addMsg("Halo, aku Lynxora. Mau buka apa? Ketik bantuan untuk lihat perintah.", false)
+                  }
+              }
+
+              private fun collapse() {
+                  if (!expanded) return
+                  expanded = false
+                  imm.hideSoftInputFromWindow(input.windowToken, 0)
+                  try { wm.removeView(panel) } catch (e: Exception) {}
+                  try { wm.addView(orb, orbLp) } catch (e: Exception) {}
+              }
+
+              private fun setStatus(t: String, color: String) {
+                  status.text = t
+                  dotBg.setColor(Color.parseColor(color))
+              }
+
+              private fun updateStatus() {
+                  if (AsistenAccessibilityService.instance != null) {
+                      setStatus("Siap", cOk)
+                  } else {
+                      setStatus("Aksesibilitas belum aktif", cWarn)
+                  }
+              }
+
+              // ---------- chat ----------
+
+              private fun addMsg(pesan: String, user: Boolean) {
+                  val tv = TextView(this).apply {
+                      text = pesan
+                      setTextColor(Color.parseColor(if (user) "#FFFFFF" else cText))
+                      textSize = 14f
+                      maxWidth = dp(240)
+                      setLineSpacing(0f, 1.1f)
+                      setPadding(dp(12), dp(8), dp(12), dp(8))
+                      background = shape(if (user) cAccent else cField, 12)
+                  }
+                  val p = LinearLayout.LayoutParams(WRAP, WRAP)
+                  p.gravity = if (user) Gravity.END else Gravity.START
+                  p.topMargin = dp(3)
+                  p.bottomMargin = dp(3)
+                  log.addView(tv, p)
+                  if (log.childCount > 40) log.removeViewAt(0)
+                  scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+              }
+
+              private fun kirim(cmd: String, suara: Boolean) {
+                  val t = cmd.trim()
+                  if (t.isEmpty()) return
+                  imm.hideSoftInputFromWindow(input.windowToken, 0)
+                  input.setText("")
+                  input.clearFocus()
+                  setFocusable(false)
+                  addMsg(t, true)
+                  h.postDelayed({
+                      val r = try {
+                          Executor.run(this, t)
+                      } catch (e: Exception) {
+                          Hasil("Terjadi kesalahan", false)
+                      }
+                      addMsg(r.teks, false)
+                      updateStatus()
+                      if (suara) bicara(r.teks)
+                      if (r.tutup) h.postDelayed({ collapse() }, 900)
+                  }, 350)
+              }
+
+              // ---------- suara ----------
+
+              private fun bicara(t: String) {
+                  if (ttsReady) tts?.speak(t, TextToSpeech.QUEUE_FLUSH, null, "lynxora")
+              }
+
+              private fun dengar() {
+                  if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                      addMsg("Izinkan Mikrofon dulu di aplikasi Lynxora AI, lalu tekan Mulai lagi.", false)
+                      return
+                  }
+                  if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+                      addMsg("Pengenal suara tidak tersedia di HP ini.", false)
+                      return
+                  }
+                  recognizer?.destroy()
+                  val r = SpeechRecognizer.createSpeechRecognizer(this)
+                  recognizer = r
+                  r.setRecognitionListener(object : RecognitionListener {
+                      override fun onReadyForSpeech(params: Bundle?) {
+                          setStatus("Mendengarkan", cInfo)
+                      }
+                      override fun onBeginningOfSpeech() {}
+                      override fun onRmsChanged(rmsdB: Float) {}
+                      override fun onBufferReceived(buffer: ByteArray?) {}
+                      override fun onEndOfSpeech() {
+                          setStatus("Memproses", cInfo)
+                      }
+                      override fun onError(error: Int) {
+                          updateStatus()
+                          addMsg("Suara tidak terdengar, coba lagi.", false)
+                      }
+                      override fun onResults(results: Bundle?) {
+                          updateStatus()
+                          val t = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                          if (t != null) kirim(t, true)
+                      }
+                      override fun onPartialResults(partialResults: Bundle?) {}
+                      override fun onEvent(eventType: Int, params: Bundle?) {}
+                  })
+                  val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                  i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                  i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "id-ID")
+                  r.startListening(i)
+              }
+          }
+          __END_8__
+          mkdir -p $(dirname app/src/main/java/com/asisten/hp/Executor.kt)
+          cat > app/src/main/java/com/asisten/hp/Executor.kt <<'__END_9__'
+          package com.asisten.hp
+
+          import android.accessibilityservice.AccessibilityService
+          import android.content.Context
+          import android.content.Intent
+          import android.hardware.camera2.CameraCharacteristics
+          import android.hardware.camera2.CameraManager
+          import android.media.AudioManager
+          import android.net.Uri
+          import android.os.BatteryManager
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.AlarmClock
+          import android.provider.ContactsContract
+          import android.provider.MediaStore
+          import android.provider.Settings
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          class Hasil(val teks: String, val tutup: Boolean = true)
+
+          private class Hitung(val s: String) {
+              var p = 0
+
+              fun hasil(): Double {
+                  val v = expr()
+                  ws()
+                  if (p < s.length) throw IllegalArgumentException("sisa")
+                  return v
+              }
+
+              private fun ws() {
+                  while (p < s.length && s[p] == ' ') p++
+              }
+
+              private fun expr(): Double {
+                  var v = term()
+                  var selesai = false
+                  while (!selesai) {
+                      ws()
+                      if (p < s.length && s[p] == '+') { p++; v += term() }
+                      else if (p < s.length && s[p] == '-') { p++; v -= term() }
+                      else selesai = true
+                  }
+                  return v
+              }
+
+              private fun term(): Double {
+                  var v = faktor()
+                  var selesai = false
+                  while (!selesai) {
+                      ws()
+                      if (p < s.length && (s[p] == '*' || s[p] == 'x')) { p++; v *= faktor() }
+                      else if (p < s.length && (s[p] == '/' || s[p] == ':')) { p++; v /= faktor() }
+                      else selesai = true
+                  }
+                  return v
+              }
+
+              private fun faktor(): Double {
+                  ws()
+                  if (p < s.length && s[p] == '-') { p++; return -faktor() }
+                  if (p < s.length && s[p] == '(') {
+                      p++
+                      val v = expr()
+                      ws()
+                      if (p < s.length && s[p] == ')') p++
+                      return v
+                  }
+                  val st = p
+                  while (p < s.length && (s[p].isDigit() || s[p] == '.')) p++
+                  if (st == p) throw IllegalArgumentException("angka")
+                  return s.substring(st, p).toDouble()
+              }
+          }
+
+          object Executor {
+
+              private class AppInfo(val names: List<String>, val pkgs: List<String>, val keys: List<String>)
+
+              private val apps = listOf(
+                  AppInfo(listOf("wa", "whatsapp", "wasap", "watsap"), listOf("com.whatsapp"), listOf("whatsapp")),
+                  AppInfo(listOf("wa bisnis", "whatsapp bisnis", "wa business", "wab"), listOf("com.whatsapp.w4b"), listOf("whatsapp business")),
+                  AppInfo(listOf("ml", "mobile legends", "mobile legend", "mlbb", "emel"), listOf("com.mobile.legends"), listOf("mobile legends")),
+                  AppInfo(listOf("ig", "instagram", "insta"), listOf("com.instagram.android", "com.instagram.lite"), listOf("instagram")),
+                  AppInfo(listOf("fb", "facebook", "fesbuk"), listOf("com.facebook.katana", "com.facebook.lite"), listOf("facebook")),
+                  AppInfo(listOf("yt", "youtube"), listOf("com.google.android.youtube"), listOf("youtube")),
+                  AppInfo(listOf("tiktok", "tik tok", "tt"), listOf("com.zhiliaoapp.musically", "com.ss.android.ugc.trill", "com.ss.android.ugc.aweme.lite"), listOf("tiktok")),
+                  AppInfo(listOf("tele", "telegram", "tg"), listOf("org.telegram.messenger", "org.telegram.messenger.web"), listOf("telegram")),
+                  AppInfo(listOf("ff", "free fire", "freefire"), listOf("com.dts.freefireth", "com.dts.freefiremax"), listOf("free fire")),
+                  AppInfo(listOf("pubg", "pubgm"), listOf("com.tencent.ig", "com.pubg.imobile"), listOf("pubg")),
+                  AppInfo(listOf("roblox"), listOf("com.roblox.client"), listOf("roblox")),
+                  AppInfo(listOf("chrome", "browser", "peramban"), listOf("com.android.chrome"), listOf("chrome", "browser")),
+                  AppInfo(listOf("gmail", "email"), listOf("com.google.android.gm"), listOf("gmail")),
+                  AppInfo(listOf("playstore", "play store"), listOf("com.android.vending"), listOf("play store")),
+                  AppInfo(listOf("maps", "google maps", "peta"), listOf("com.google.android.apps.maps"), listOf("maps")),
+                  AppInfo(listOf("spotify"), listOf("com.spotify.music"), listOf("spotify")),
+                  AppInfo(listOf("shopee"), listOf("com.shopee.id"), listOf("shopee")),
+                  AppInfo(listOf("tokped", "tokopedia"), listOf("com.tokopedia.tkpd"), listOf("tokopedia")),
+                  AppInfo(listOf("gojek", "gopay"), listOf("com.gojek.app"), listOf("gojek")),
+                  AppInfo(listOf("grab"), listOf("com.grabtaxi.passenger"), listOf("grab")),
+                  AppInfo(listOf("dana"), listOf("id.dana"), listOf("dana")),
+                  AppInfo(listOf("ovo"), listOf("ovo.id"), listOf("ovo")),
+                  AppInfo(listOf("x", "twitter"), listOf("com.twitter.android"), listOf("twitter")),
+                  AppInfo(listOf("discord", "dc"), listOf("com.discord"), listOf("discord")),
+                  AppInfo(listOf("capcut"), listOf("com.lemon.lvoverseas"), listOf("capcut")),
+                  AppInfo(listOf("snapchat", "snap"), listOf("com.snapchat.android"), listOf("snapchat")),
+                  AppInfo(listOf("netflix"), listOf("com.netflix.mediaclient"), listOf("netflix")),
+                  AppInfo(listOf("line"), listOf("jp.naver.line.android"), listOf("line")),
+                  AppInfo(
+                      listOf("galeri", "gallery", "foto", "photos"),
+                      listOf("com.google.android.apps.photos", "com.sec.android.gallery3d", "com.miui.gallery", "com.android.gallery3d"),
+                      listOf("galeri", "gallery", "foto", "photos")
+                  ),
+                  AppInfo(
+                      listOf("kalkulator", "calculator"),
+                      listOf("com.google.android.calculator", "com.miui.calculator", "com.sec.android.app.popupcalculator", "com.android.calculator2"),
+                      listOf("kalkulator", "calculator")
+                  ),
+                  AppInfo(
+                      listOf("pesan", "messages", "sms"),
+                      listOf("com.google.android.apps.messaging", "com.samsung.android.messaging", "com.android.mms"),
+                      listOf("pesan", "messages")
+                  ),
+                  AppInfo(
+                      listOf("file", "files", "berkas", "file manager"),
+                      listOf("com.google.android.apps.nbu.files", "com.mi.android.globalFileexplorer", "com.sec.android.app.myfiles", "com.android.documentsui"),
+                      listOf("file", "berkas")
+                  ),
+                  AppInfo(
+                      listOf("kamera", "camera"),
+                      listOf("com.android.camera", "com.android.camera2", "com.google.android.GoogleCamera", "com.sec.android.app.camera", "com.oppo.camera", "com.coloros.camera", "com.huawei.camera", "com.transsion.camera"),
+                      listOf("kamera", "camera")
+                  )
+              )
+
+              private val awal = setOf(
+                  "tolong", "coba", "bro", "sis", "kak", "min", "aku", "saya", "mau", "ingin",
+                  "pengen", "bisa", "bantu", "bantuin", "please", "plis"
+              )
+              private val akhir = setOf(
+                  "dong", "donk", "ya", "yah", "deh", "aja", "saja", "nih", "sih", "please", "plis", "lah", "kak", "bro"
+              )
+              private val vBuka = setOf("buka", "open", "jalankan", "launch", "masuk", "bukain", "bukakan")
+              private val vCari = setOf("cari", "carikan", "search", "googling", "google")
+              private val vKetik = setOf("ketik", "ketikkan", "tulis", "tuliskan", "type")
+              private val vTap = setOf("tap", "klik", "ketuk", "pencet", "tekan")
+              private val vTelp = setOf("telepon", "telpon", "call", "hubungi")
+              private val vYt = setOf("putar", "putarkan", "yt", "youtube")
+              private val vMaps = setOf("maps", "peta", "navigasi")
+              private val vHitung = setOf("hitung", "calc")
+              private val jaga = vKetik + vCari + vYt + vMaps + vHitung + setOf("kirim")
+
+              private var torchOn = false
+
+              fun run(ctx: Context, raw: String): Hasil {
+                  val tokens = raw.trim().split(" ").filter { it.isNotEmpty() }.toMutableList()
+                  while (tokens.isNotEmpty() && tokens[0].lowercase() in awal) tokens.removeAt(0)
+                  if (tokens.isEmpty()) return Hasil("Ketik perintah, misalnya: buka wa", false)
+                  val verb = tokens[0].lowercase()
+                  if (verb !in jaga) {
+                      while (tokens.size > 1 && tokens[tokens.size - 1].lowercase() in akhir) {
+                          tokens.removeAt(tokens.size - 1)
+                      }
+                  }
+                  val rest = tokens.drop(1).joinToString(" ")
+                  val restL = rest.lowercase()
+                  val all = tokens.joinToString(" ").lowercase()
+                  return try {
+                      dispatch(ctx, verb, rest, restL, all)
+                  } catch (e: Exception) {
+                      Hasil("Gagal: " + (e.message ?: "kesalahan"), false)
+                  }
+              }
+
+              private fun dispatch(ctx: Context, verb: String, rest: String, restL: String, all: String): Hasil {
+                  val ada = rest.isNotEmpty()
+                  return when {
+                      verb in vBuka && ada -> buka(ctx, restL)
+                      verb in vCari && ada -> view(
+                          ctx, "https://www.google.com/search?q=" + Uri.encode(rest), "Mencari: $rest"
+                      )
+                      verb in vKetik && ada -> acc { it.ketik(rest) }
+                      verb in vTap && ada -> acc { it.tap(rest) }
+                      verb in vTelp && ada -> start(
+                          ctx, Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(rest))), "Menelepon $rest"
+                      )
+                      verb in vYt && ada -> view(
+                          ctx, "https://www.youtube.com/results?search_query=" + Uri.encode(rest), "Mencari di YouTube: $rest"
+                      )
+                      verb in vMaps && ada -> start(
+                          ctx, Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(rest))), "Membuka peta: $rest"
+                      )
+                      verb == "kirim" && restL.startsWith("wa ") -> kirimWa(ctx, rest.drop(3).trim())
+                      verb == "alarm" || verb == "bangunkan" || verb == "bangunin" -> alarm(ctx, restL)
+                      verb == "timer" -> timer(ctx, restL)
+                      verb in vHitung && ada -> hitung(rest)
+                      else -> tunggal(ctx, all)
+                  }
+              }
+
+              private fun acc(f: (AsistenAccessibilityService) -> String): Hasil {
+                  val s = AsistenAccessibilityService.instance
+                      ?: return Hasil("Aktifkan layanan Aksesibilitas dulu (Pengaturan > Aksesibilitas > Lynxora AI)", false)
+                  val r = f(s)
+                  val gagal = r.startsWith("Tidak") || r.startsWith("Gagal") || r.startsWith("Layar")
+                  return Hasil(r, !gagal)
+              }
+
+              private fun start(ctx: Context, i: Intent, ok: String): Hasil {
+                  return try {
+                      i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                      ctx.startActivity(i)
+                      Hasil(ok, true)
+                  } catch (e: Exception) {
+                      Hasil("Gagal: " + (e.message ?: "tidak diketahui"), false)
+                  }
+              }
+
+              private fun view(ctx: Context, url: String, ok: String): Hasil =
+                  start(ctx, Intent(Intent.ACTION_VIEW, Uri.parse(url)), ok)
+
+              private fun cariApp(ctx: Context, n: String, longgar: Boolean): Intent? {
+                  val pm = ctx.packageManager
+                  val info = apps.firstOrNull { n in it.names }
+                  if (info != null) {
+                      for (p in info.pkgs) {
+                          val i = pm.getLaunchIntentForPackage(p)
+                          if (i != null) return i
+                      }
+                  }
+                  val list = pm.queryIntentActivities(
+                      Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
+                  )
+                  val keys = (info?.keys ?: emptyList<String>()) + n
+                  for (k in keys) {
+                      val m = list.firstOrNull { it.loadLabel(pm).toString().lowercase() == k }
+                      if (m != null) return pm.getLaunchIntentForPackage(m.activityInfo.packageName)
+                  }
+                  if (longgar) {
+                      for (k in keys) {
+                          if (k.length < 3) continue
+                          val m = list.firstOrNull { it.loadLabel(pm).toString().lowercase().contains(k) }
+                          if (m != null) return pm.getLaunchIntentForPackage(m.activityInfo.packageName)
+                      }
+                  }
+                  return null
+              }
+
+              private fun buka(ctx: Context, n: String): Hasil {
+                  if (Regex("^[a-z0-9-]+(\\.[a-z0-9-]+)+(/\\S*)?$").matches(n)) {
+                      val url = if (n.startsWith("http")) n else "https://$n"
+                      return view(ctx, url, "Membuka $n")
+                  }
+                  val s = sistem(ctx, n)
+                  if (s != null) return s
+                  val i = cariApp(ctx, n, true)
+                  if (i != null) return start(ctx, i, "Membuka $n")
+                  if (n == "kamera" || n == "camera") {
+                      return start(ctx, Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), "Membuka kamera")
+                  }
+                  return Hasil("Aplikasi tidak ditemukan: $n", false)
+              }
+
+              private fun sistem(ctx: Context, n: String): Hasil? {
+                  return when (n) {
+                      "notifikasi", "notif" ->
+                          acc { it.global(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS, "Membuka notifikasi") }
+                      "setelan", "pengaturan", "setting", "settings" ->
+                          start(ctx, Intent(Settings.ACTION_SETTINGS), "Membuka pengaturan")
+                      "wifi", "wi-fi" ->
+                          start(ctx, Intent(Settings.ACTION_WIFI_SETTINGS), "Membuka pengaturan Wi-Fi")
+                      "bluetooth" ->
+                          start(ctx, Intent(Settings.ACTION_BLUETOOTH_SETTINGS), "Membuka pengaturan Bluetooth")
+                      "mode pesawat" ->
+                          start(ctx, Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS), "Membuka mode pesawat")
+                      "kontak" ->
+                          start(ctx, Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.CONTENT_URI), "Membuka kontak")
+                      "telepon", "dialer" ->
+                          start(ctx, Intent(Intent.ACTION_DIAL), "Membuka telepon")
+                      "alarm" ->
+                          start(ctx, Intent(AlarmClock.ACTION_SHOW_ALARMS), "Membuka alarm")
+                      else -> null
+                  }
+              }
+
+              private fun kirimWa(ctx: Context, s: String): Hasil {
+                  val p = s.split(" ", limit = 2)
+                  var no = p[0].filter { it.isDigit() }
+                  if (no.length < 8) return Hasil("Format: kirim wa 0812xxxx isi pesan", false)
+                  no = if (no.startsWith("0")) "62" + no.drop(1) else if (no.startsWith("8")) "62$no" else no
+                  val pesan = if (p.size > 1) p[1] else ""
+                  val r = view(ctx, "https://wa.me/" + no + "?text=" + Uri.encode(pesan), "Membuka chat WhatsApp")
+                  Handler(Looper.getMainLooper()).postDelayed({
+                      val svc = AsistenAccessibilityService.instance
+                      if (svc != null && pesan.isNotEmpty()) {
+                          if (svc.tap("Kirim").startsWith("Tidak")) svc.tap("Send")
+                      }
+                  }, 3500)
+                  return r
+              }
+
+              private fun alarm(ctx: Context, s: String): Hasil {
+                  val m = Regex("(\\d{1,2})(?:[.:](\\d{2}))?").find(s)
+                      ?: return Hasil("Contoh: alarm jam 6.30", false)
+                  var jam = m.groupValues[1].toInt()
+                  val mnt = if (m.groupValues[2].isEmpty()) 0 else m.groupValues[2].toInt()
+                  if ((s.contains("sore") || s.contains("malam")) && jam < 12) jam += 12
+                  if (jam > 23 || mnt > 59) return Hasil("Jam tidak valid", false)
+                  val i = Intent(AlarmClock.ACTION_SET_ALARM)
+                      .putExtra(AlarmClock.EXTRA_HOUR, jam)
+                      .putExtra(AlarmClock.EXTRA_MINUTES, mnt)
+                      .putExtra(AlarmClock.EXTRA_MESSAGE, "Lynxora AI")
+                      .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                  return start(ctx, i, "Alarm dipasang " + String.format("%02d.%02d", jam, mnt))
+              }
+
+              private fun timer(ctx: Context, s: String): Hasil {
+                  val m = Regex("(\\d+)\\s*(detik|dtk|menit|mnt|jam)?").find(s)
+                      ?: return Hasil("Contoh: timer 5 menit", false)
+                  val n = m.groupValues[1].toInt()
+                  val u = m.groupValues[2]
+                  val detik = when (u) {
+                      "detik", "dtk" -> n
+                      "jam" -> n * 3600
+                      else -> n * 60
+                  }
+                  val satuan = if (u.isEmpty()) "menit" else u
+                  val i = Intent(AlarmClock.ACTION_SET_TIMER)
+                      .putExtra(AlarmClock.EXTRA_LENGTH, detik)
+                      .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+                  return start(ctx, i, "Timer $n $satuan dimulai")
+              }
+
+              private fun hitung(s: String): Hasil {
+                  val e = s.lowercase()
+                      .replace("kali", "*").replace("tambah", "+").replace("kurang", "-")
+                      .replace("bagi", "/").replace(",", ".").replace("=", "").replace("berapa", "")
+                  return try {
+                      val v = Hitung(e).hasil()
+                      if (v.isNaN() || v.isInfinite()) {
+                          Hasil("Tidak bisa dihitung", false)
+                      } else {
+                          val teks = if (v % 1.0 == 0.0 && Math.abs(v) < 1e15) {
+                              v.toLong().toString()
+                          } else {
+                              String.format(Locale.US, "%.6f", v).trimEnd('0').trimEnd('.')
+                          }
+                          Hasil(s + " = " + teks, false)
+                      }
+                  } catch (ex: Exception) {
+                      Hasil("Tidak bisa dihitung. Contoh: hitung 12*5", false)
+                  }
+              }
+
+              private fun senter(ctx: Context, a: String): Hasil {
+                  val mati = a.contains("mati") || a.contains("off")
+                  val hidup = a.contains("nyala") || a.contains("hidup") || a.contains("on")
+                  val on = if (mati) false else if (hidup) true else !torchOn
+                  return try {
+                      val cm = ctx.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                      val id = cm.cameraIdList.firstOrNull {
+                          cm.getCameraCharacteristics(it).get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
+                      } ?: return Hasil("HP ini tidak punya senter", false)
+                      cm.setTorchMode(id, on)
+                      torchOn = on
+                      Hasil(if (on) "Senter dinyalakan" else "Senter dimatikan", true)
+                  } catch (e: Exception) {
+                      Hasil("Gagal: " + (e.message ?: "senter"), false)
+                  }
+              }
+
+              private fun volume(ctx: Context, a: String): Hasil {
+                  val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                  val st = AudioManager.STREAM_MUSIC
+                  return when {
+                      a.contains("max") || a.contains("penuh") -> {
+                          am.setStreamVolume(st, am.getStreamMaxVolume(st), AudioManager.FLAG_SHOW_UI)
+                          Hasil("Volume maksimal", false)
+                      }
+                      a.contains("naik") || a.contains("besar") || a.contains("keras") -> {
+                          am.adjustStreamVolume(st, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                          am.adjustStreamVolume(st, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                          Hasil("Volume dinaikkan", false)
+                      }
+                      a.contains("turun") || a.contains("kecil") || a.contains("pelan") -> {
+                          am.adjustStreamVolume(st, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                          am.adjustStreamVolume(st, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                          Hasil("Volume diturunkan", false)
+                      }
+                      a.contains("mute") || a.contains("senyap") || a.contains("diam") -> {
+                          am.setStreamVolume(st, 0, AudioManager.FLAG_SHOW_UI)
+                          Hasil("Volume dibisukan", false)
+                      }
+                      else -> Hasil("Contoh: volume naik, volume turun, volume max, volume mute", false)
+                  }
+              }
+
+              private fun baterai(ctx: Context): Hasil {
+                  val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+                  val p = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                  return Hasil("Baterai $p%", false)
+              }
+
+              private fun screenshot(): Hasil {
+                  val s = AsistenAccessibilityService.instance
+                      ?: return Hasil("Aktifkan layanan Aksesibilitas dulu", false)
+                  Handler(Looper.getMainLooper()).postDelayed({
+                      s.global(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT, "ok")
+                  }, 1800)
+                  return Hasil("Screenshot dalam 2 detik...", true)
+              }
+
+              private fun appFallback(ctx: Context, a: String): Hasil {
+                  val i = cariApp(ctx, a, false)
+                  if (i != null) return start(ctx, i, "Membuka $a")
+                  return Hasil("Aku belum paham: $a. Ketik bantuan untuk daftar perintah.", false)
+              }
+
+              private fun bantuan(): Hasil {
+                  val b = "\u2022 buka wa / ml / ig / yt / tiktok / kamera ...\n" +
+                      "\u2022 cari ..., youtube ..., maps ...\n" +
+                      "\u2022 ketik ..., tap ..., scroll bawah/atas\n" +
+                      "\u2022 kembali, beranda, notifikasi, screenshot\n" +
+                      "\u2022 senter nyala/mati, volume naik/turun/max\n" +
+                      "\u2022 alarm jam 6.30, timer 5 menit\n" +
+                      "\u2022 hitung 12*5, jam berapa, tanggal, baterai\n" +
+                      "\u2022 kirim wa 0812xxxx isi pesan\n" +
+                      "\u2022 telepon 0812xxxx"
+                  return Hasil(b, false)
+              }
+
+              private fun tunggal(ctx: Context, a: String): Hasil {
+                  val sapa = setOf("halo", "hai", "hi", "hei", "hey", "p", "assalamualaikum", "pagi", "siang", "malam")
+                  return when {
+                      a in setOf("kembali", "back", "balik") ->
+                          acc { it.global(AccessibilityService.GLOBAL_ACTION_BACK, "Kembali") }
+                      a in setOf("beranda", "home", "layar utama") ->
+                          acc { it.global(AccessibilityService.GLOBAL_ACTION_HOME, "Ke beranda") }
+                      a in setOf("terbaru", "recent", "recents", "aplikasi terbaru") ->
+                          acc { it.global(AccessibilityService.GLOBAL_ACTION_RECENTS, "Aplikasi terbaru") }
+                      a == "scroll bawah" || a == "turun" || a == "scroll turun" -> acc { it.scroll(true) }
+                      a == "scroll atas" || a == "naik" || a == "scroll naik" -> acc { it.scroll(false) }
+                      a == "screenshot" || a == "ss" || a == "tangkap layar" -> screenshot()
+                      a == "kunci layar" || a == "kunci" || a == "lock" ->
+                          acc { it.global(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN, "Layar dikunci") }
+                      a.contains("senter") || a.contains("flash") -> senter(ctx, a)
+                      a.contains("volume") -> volume(ctx, a)
+                      a.contains("baterai") || a == "batre" -> baterai(ctx)
+                      a == "jam" || a.contains("jam berapa") || a == "waktu" -> {
+                          val t = SimpleDateFormat("HH.mm", Locale("id", "ID")).format(Date())
+                          Hasil("Sekarang jam $t", false)
+                      }
+                      a.startsWith("tanggal") || a == "hari ini" || a == "hari apa" -> {
+                          val t = SimpleDateFormat("EEEE, d MMMM yyyy", Locale("id", "ID")).format(Date())
+                          Hasil("Hari ini $t", false)
+                      }
+                      a in setOf("bantuan", "help", "menu", "?") -> bantuan()
+                      a in sapa -> Hasil("Halo! Ada yang bisa kubantu? Ketik bantuan untuk daftar perintah.", false)
+                      a.contains("terima kasih") || a.contains("makasih") || a == "thanks" -> Hasil("Sama-sama!", false)
+                      Regex("^[0-9+\\-*/x:().,\\s]+$").matches(a) && a.any { it.isDigit() } && a.any { it in "+-*/x:" } -> hitung(a)
+                      else -> sistem(ctx, a) ?: appFallback(ctx, a)
+                  }
+              }
+          }
+          __END_9__
+          mkdir -p $(dirname app/src/main/java/com/asisten/hp/AsistenAccessibilityService.kt)
+          cat > app/src/main/java/com/asisten/hp/AsistenAccessibilityService.kt <<'__END_10__'
+          package com.asisten.hp
+
+          import android.accessibilityservice.AccessibilityService
+          import android.content.Intent
+          import android.os.Bundle
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+
+          class AsistenAccessibilityService : AccessibilityService() {
+
+              companion object {
+                  var instance: AsistenAccessibilityService? = null
+              }
+
+              override fun onServiceConnected() {
+                  instance = this
+              }
+
+              override fun onUnbind(intent: Intent?): Boolean {
+                  instance = null
+                  return super.onUnbind(intent)
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
+              override fun onInterrupt() {}
+
+              fun global(action: Int, ok: String): String =
+                  if (performGlobalAction(action)) ok else "Gagal"
+
+              fun ketik(text: String): String {
+                  val root = rootInActiveWindow ?: return "Layar tidak terbaca"
+                  val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: findEditable(root)
+                      ?: return "Tidak ada kolom input. Tap kolomnya dulu"
+                  val args = Bundle()
+                  args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                  return if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                      "Mengetik: $text"
+                  } else {
+                      "Gagal mengetik"
+                  }
+              }
+
+              fun tap(text: String): String {
+                  val root = rootInActiveWindow ?: return "Layar tidak terbaca"
+                  val nodes = root.findAccessibilityNodeInfosByText(text)
+                  for (n in nodes) {
+                      var x: AccessibilityNodeInfo? = n
+                      while (x != null && !x.isClickable) x = x.parent
+                      if (x != null && x.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                          return "Tap: $text"
+                      }
+                  }
+                  return "Tidak menemukan: $text"
+              }
+
+              fun scroll(down: Boolean): String {
+                  val root = rootInActiveWindow ?: return "Layar tidak terbaca"
+                  val node = findScrollable(root) ?: return "Tidak ada yang bisa di-scroll"
+                  val act = if (down) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                  else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                  return if (node.performAction(act)) "Scroll" else "Gagal scroll"
+              }
+
+              private fun findEditable(n: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                  if (n == null) return null
+                  if (n.isEditable) return n
+                  for (i in 0 until n.childCount) {
+                      val r = findEditable(n.getChild(i))
+                      if (r != null) return r
+                  }
+                  return null
+              }
+
+              private fun findScrollable(n: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                  if (n == null) return null
+                  if (n.isScrollable) return n
+                  for (i in 0 until n.childCount) {
+                      val r = findScrollable(n.getChild(i))
+                      if (r != null) return r
+                  }
+                  return null
+              }
+          }
+          __END_10__
+          mkdir -p $(dirname app/src/main/res/values/colors.xml)
+          cat > app/src/main/res/values/colors.xml <<'__END_11__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_bg">#08050F</color>
+          </resources>
+          __END_11__
+          mkdir -p $(dirname app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml)
+          cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'__END_12__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_bg" />
+              <foreground android:drawable="@drawable/ic_fg" />
+          </adaptive-icon>
+          __END_12__
+          mkdir -p $(dirname app/src/main/res/drawable/ic_mic.xml)
+          cat > app/src/main/res/drawable/ic_mic.xml <<'__END_13__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M12,14c1.66,0 2.99,-1.34 2.99,-3L15,5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17.3,11c0,3 -2.54,5.1 -5.3,5.1S6.7,14 6.7,11L5,11c0,3.41 2.72,6.23 6,6.72L11,21h2v-3.28c3.28,-0.48 6,-3.3 6,-6.72h-1.7z" />
+          </vector>
+          __END_13__
+          mkdir -p $(dirname app/src/main/res/drawable/ic_send.xml)
+          cat > app/src/main/res/drawable/ic_send.xml <<'__END_14__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M2.01,21L23,12 2.01,3 2,10l15,2 -15,2z" />
+          </vector>
+          __END_14__
+          mkdir -p $(dirname app/src/main/res/drawable/ic_close.xml)
+          cat > app/src/main/res/drawable/ic_close.xml <<'__END_15__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M19,6.41L17.59,5 12,10.59 6.41,5 5,6.41 10.59,12 5,17.59 6.41,19 12,13.41 17.59,19 19,17.59 13.41,12z" />
+          </vector>
+          __END_15__
+          mkdir -p $(dirname app/src/main/res/drawable/ic_down.xml)
+          cat > app/src/main/res/drawable/ic_down.xml <<'__END_16__'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp" android:height="24dp"
+              android:viewportWidth="24" android:viewportHeight="24">
+              <path android:fillColor="#FFFFFFFF" android:pathData="M16.59,8.59L12,13.17 7.41,8.59 6,10l6,6 6,-6z" />
+          </vector>
+          __END_16__
+          mkdir -p $(dirname app/src/main/res/drawable-nodpi/logo.png)
+          base64 -d > app/src/main/res/drawable-nodpi/logo.png <<'__BIN_0__'
+          iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAMAAABlApw1AAAB4FBMVEWMI/RvF91iDtx2EnZRELBO
+          J41BIlhVB6JfDOJkS42qVf+gT97GZ/8EAQgUBiwAAADYxvIkCFFICbIvCW7x6PrKuOlSCsvl1/n7
+          9/1sE/I6CYu4pdgdBkNcE8xCC5liFNZTFbFlDuwpJy1KRVEWFRhGE5LCreM2EnArE05dDeMiFzBt
+          aHKHKfyUN/vKxs+WiKusp7ELBBQ2NDmMiJGEepWwVvylSft9AP7Dt9Pe0vDgzv0dFihWU1l8Ivt9
+          d4XW09kgDTs8N0QJBBCjmbJbVWQ9EoRVAP9zaIWrmckKAxFiXGt3dHqXlJqck6m+quEAAP+3tblz
+          FPUJBBIKBBIJBBGEGf5iDtW9tsZQKm9CPEpzFvWbQfn/AP8KAi1TAahrDfNyFvKRSM0VBik/AL+N
+          falIGW1cKIZ1E/VyFPVoNpCCPLeqAP/Ard0VBilCDXhUS2NmC+hzEvSgO/8VByonBlExCWs0K0RP
+          Cq9VCMtTCcx/AL9tDPNoFdlzLLN2ItKDQ7MAAH8kAEgmB1A6CnovB2k/CKhVAFVPCapLCbRRCrFc
+          CcdBHlloDe1oDe9nH7N2FfhkJ5V8Q6qIFvGKNdOVVc28ZP8WDy0VCCoSByEAAFUnBlUnBk40BnQ+
+          Cog9ImtCCJvbbn9ZAAAAoHRSTlMaXZsEXOD/Idr/A////v8A//7+/v///v///v7///7+/v7+////
+          //////7/////////0f//////A/////////////8q////A///UP//////Af/SdJe0//7///8S/wEO
+          Bs8t/1EE////cK///wP/av//NU//s5zT/5lSzgRLEv///wIH13K8/wNbts4b/3is/5H//xX///8i
+          ncEDdL2cSf/O6svHsQAAE9FJREFUeNrVnYl/28aVx9m03W13FwBBgATvA4SogzYpibRFUQplHZao
+          25Zt2U58xEccO5ujaa5NmzS9u93e17Z79l/tzAADDIAZ3JTVycdxIlHU++L93jEHiJTgPe6jf2/s
+          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
+          __BIN_0__
+          mkdir -p $(dirname app/src/main/res/drawable-nodpi/ic_fg.png)
+          base64 -d > app/src/main/res/drawable-nodpi/ic_fg.png <<'__BIN_1__'
+          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
+          /wduVnBqQq05OgAAAABJRU5ErkJggg==
+          __BIN_1__
+          mkdir -p $(dirname app/src/main/res/drawable-nodpi/ic_notif.png)
+          base64 -d > app/src/main/res/drawable-nodpi/ic_notif.png <<'__BIN_2__'
+          iVBORw0KGgoAAAANSUhEUgAAAEgAAABIBAMAAACnw650AAAAMFBMVEX///////////////////8A
+          AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABc/jfuAAAAEHRSTlMA/zFNagAAAAAAAAAA
+          AAAADGcGLwAAArtJREFUeNrVlt9u0zAUxn/HqcSG1NbuJnG3puJ+yniC7cnhDdgLoHYMiRs2u4BE
+          kZqYC9uJ06Sjd4hc2c7n8+c7n30M/8Onh0vqhJWRJX+KO9GnGP+rO/WOQgagSW8yZcYe7V6wemcu
+          AYx5AWPMAoAbc3uYS4dBnmN2YTAS+B3Fc2TcH6NKUiRi9IAq1VbMp4HDyyhohXKREg84PQIqHNMw
+          r3EgSo2ArpBNmJcATIPvQucgx1Xc5AC8BFXNygwkcJ9MFwE6ASStql5qqDDy1LlmVOYFmAdiNeiM
+          LHVQGgT4IFD4fnZl8maAGvAOmguriwzkBsX2QGPW19kPg42SA7DRZBxGS8nANFEwSaq7GGhcQix7
+          1DQtNbpPJmjmP3VHQx6lgooGEOxmCjgZnnkFobR6jgA+cri02y6aFJPyGzSobQzjM4116cwnUOOQ
+          LFS8Li69i9JRx+4cqeuFj0Srw0yKeaSwcj7VogMFw/bbZhXmXzylbzV2DrtoyduuAP61dZyzyy+M
+          Ila/C80b5g+6566JmCKPfhv2qLS1jJk0IDYwCWiKxLgAjmVcts8UXf2askfBfXBvYTLreUS1UVyj
+          AL9slRUtbZIyvcNYxI/cv97lBT5SnzJSoBEEqMquPqtF1UVaANszdvLG8Xu3A1jtEPvVPr4Cluv2
+          6J9z9ssRa4CEY1LugO3ZrmO86FXbA6xtmeJT4SZoer0nRv5RR22r+FNnV1hUPayrXL46ZBeqV3X5
+          v3eZHidTvEM0FhBtR7vUvoro4O9I2yhmqKdgD4x3o/d47Wj0Pu5xqk2BQ2qk0iFL8QfNUmW6eQCk
+          hMZpFqOg5kfQ7xbwonpS6Mzuv3d0O9Pru5nvettKzs8+1dV4N2+sBpBbWGseX2rWxhh90ImHj4Cb
+          Dain9k4eBwErx3wzJH78DaBPeaO8/TcvuD8sKNKn4oY6rAAAAABJRU5ErkJggg==
+          __BIN_2__
+      - name: Build
+        run: gradle assembleDebug --no-daemon
+      - name: Ganti nama APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk Lynxora-AI.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lynxora-AI
+          path: Lynxora-AI.apk
